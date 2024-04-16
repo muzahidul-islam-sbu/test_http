@@ -1,55 +1,51 @@
 import express from 'express';
 import fs from 'fs';
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const filename = 'giraffe.jpg'
-const serverUrl = `http://localhost:3000/download?file=${filename}`; // URL of the file to download
-const destinationPath = `./${filename}`; // Path where the downloaded file will be saved
+const fileHash = 'fragment_04_20240401231240.mp4'
+const serverUrl = `http://127.0.0.1:3000/requestFile?fileHash=${fileHash}`;
+const payUrl = `http://127.0.0.1:3000/pay`; // URL of the file to download
 
-const fileStream = fs.createWriteStream(destinationPath);
+import {setTimeout} from 'timers/promises';
+let done = false;
 
-http.get(serverUrl, (response) => {
+http.get(serverUrl, async (response) => {
   if (response.statusCode !== 200) {
     console.error(`Failed to download file. Server responded with status code ${response.statusCode}`);
     return;
   }
+  
+  // Get filename from Content-Disposition header
+  const contentDisposition = response.headers['content-disposition'];
+  const filenameMatch = contentDisposition.match(/filename=(.+)/);
+  const filename = filenameMatch ? filenameMatch[1] : 'downloaded_file';
+  const filePath = path.join(__dirname, `${filename}`);
+  
+  const fileStream = fs.createWriteStream(filePath);
 
   response.on('data', async (chunk) => {
     // Write each chunk of data to the file stream
     fileStream.write(chunk);
     console.log('recived')
-    await sendConfirmation();
+    sendConfirmation();
   });
 
   response.on('end', () => {
     // Close the file stream when all data has been received
     fileStream.end();
     console.log('File downloaded successfully');
+    done = true
   });
-}).on('error', (err) => {
-  console.error('Error downloading file:', err);
-});
-
+  while (!done) {
+    await setTimeout(100);
+  }
+})
 
 async function sendConfirmation() {
-  return new Promise((resolve, reject) => {
-    // Create an HTTP POST request
-    const confirmationRequest = http.request(serverUrl, {
-      method: 'POST',
-    }, (response) => {
-      if (response.statusCode === 200) {
-        console.log('Confirmation message sent to server');
-        resolve(); // Resolve the promise when the confirmation message is sent successfully
-      } else {
-        console.error(`Error sending confirmation message to server. Server responded with status code ${response.statusCode}`);
-        reject(new Error(`Server responded with status code ${response.statusCode}`)); // Reject the promise if there's an error
-      }
-    });
-
-    // Send the confirmation message in the request body
-    confirmationRequest.write('Got Chunk');
-
-    // End the request
-    confirmationRequest.end();
+  http.get(payUrl, (response) => {
   });
-}
+};
