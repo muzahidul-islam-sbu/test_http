@@ -2,10 +2,16 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { WebSocketServer } from "ws";
+import http from 'http';
 import { dirname } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+let fileChunks = []; // Array to hold file chunks
 
 // Endpoint to handle file download
 app.get('/requestFile', (req, res) => {
@@ -46,7 +52,26 @@ app.get('/requestFile', (req, res) => {
   });
 });
 
+// WebSocket connection handler
+wss.on('connection', (ws) => {
+  console.log('Client connected');
+
+  // Handle messages from the client
+  ws.on('message', (message) => {
+    if (message === 'Got Chunk') {
+      // If client confirms receiving a chunk, send the next chunk
+      const nextChunk = fileChunks.shift();
+      if (nextChunk) {
+        ws.send(nextChunk);
+      } else {
+        // If no more chunks, send a signal to close the connection
+        ws.send('All Chunks Sent');
+      }
+    }
+  });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
