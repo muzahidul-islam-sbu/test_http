@@ -1,77 +1,70 @@
 import express from 'express';
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { WebSocketServer } from "ws";
-import http from 'http';
-import { dirname } from 'path';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import {setTimeout} from 'timers/promises';
+
 
 const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const PORT = process.env.PORT || 3000;
 
-let fileChunks = []; // Array to hold file chunks
-
+let payments = 0;
+let payed = true;
 // Endpoint to handle file download
-app.get('/requestFile', (req, res) => {
-  // Parse file hash from the query parameter
-  const fileHash = req.query.fileHash;
-
-  if (!fileHash) {
-    // If file hash is not provided
-    return res.status(400).send('File hash is required');
-  }
-
-  // Assuming your files are stored in a directory called 'files'
-  const filePath = path.join(__dirname, 'files', fileHash);
+app.get('/download', (req, res) => {
+  // Assuming your file is located at './file.txt'
+  const filePath = './files/' + req.query.file;
 
   // Check if the file exists
-  fs.access(filePath, fs.constants.F_OK, (err) => {
-    if (err) {
-      // File not found
-      return res.status(404).send('File not found');
+  if (!fs.existsSync(filePath)) {
+    console.log(filePath)
+    return res.status(404).send('File not found');
+  }
+
+  // Open the file for reading synchronously
+  const fileHandle = fs.openSync(filePath, 'r');
+
+  // Buffer size for each chunk (you can adjust this value as needed)
+  const bufferSize = 1024 * 60; // 1 KB
+
+  // Buffer to store chunk data
+  const buffer = Buffer.alloc(bufferSize);
+
+  // Function to read chunks from the file and write them to the response stream
+  const readChunk = async () => {
+    while (!payed) {
+      await setTimeout(100);
     }
 
-    // Get file stats to know its size
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
+    // Read data from the file into the buffer
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, bufferSize, null);
 
-    // Set response headers
-    res.set({
-      'Content-Type': 'application/octet-stream',
-      'Content-Disposition': `attachment; filename=${fileHash}`,
-      'Content-Length': fileSize
-    });
-
-    // Create read stream to read file in chunks
-    const fileStream = fs.createReadStream(filePath);
-
-    // Stream file data to response in chunks
-    fileStream.pipe(res);
-  });
-});
-
-// WebSocket connection handler
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-
-  // Handle messages from the client
-  ws.on('message', (message) => {
-    if (message === 'Got Chunk') {
-      // If client confirms receiving a chunk, send the next chunk
-      const nextChunk = fileChunks.shift();
-      if (nextChunk) {
-        ws.send(nextChunk);
-      } else {
-        // If no more chunks, send a signal to close the connection
-        ws.send('All Chunks Sent');
-      }
+    // If bytesRead is 0, it means we've reached the end of the file
+    if (bytesRead === 0) {
+      // Close the file handle
+      fs.closeSync(fileHandle);
+      console.log(payments)
+      // End the response
+      return res.end();
     }
-  });
+
+    console.log('sent')
+    // Write the chunk data to the response stream
+    res.write(buffer.slice(0, bytesRead));
+
+    payed = false;
+    // Read the next chunk recursively
+    process.nextTick(readChunk);
+  };
+
+  // Start reading chunks from the file
+  readChunk();
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.post('/download', (req, res) => {
+  payments += 1;
+  payed = true
+});
+
+// Start the server
+app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

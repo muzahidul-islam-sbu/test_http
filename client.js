@@ -1,63 +1,55 @@
-import http from 'http';
+import express from 'express';
 import fs from 'fs';
-import path from 'path';
-import WebSocket from 'ws';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import http from 'http';
 
-// Replace 'fileHash' with the actual file hash you want to download
-const fileHash = 'giraffe.jpg';
+const filename = 'giraffe.jpg'
+const serverUrl = `http://localhost:3000/download?file=${filename}`; // URL of the file to download
+const destinationPath = `./${filename}`; // Path where the downloaded file will be saved
 
-// Construct the URL with the file hash as a query parameter
-const url = `http://127.0.0.1:3000/requestFile?fileHash=${fileHash}`;
-// Make a GET request to the server
-const request = http.get(url, (response) => {
-  if (response.statusCode === 200) {
-    // Connect to WebSocket server
-    const ws = new WebSocket('ws://127.0.0.1:3000');
+const fileStream = fs.createWriteStream(destinationPath);
 
-    // Handle WebSocket connection open event
-    ws.on('open', () => {
-      console.log('WebSocket connected');
-    });
+http.get(serverUrl, (response) => {
+  if (response.statusCode !== 200) {
+    console.error(`Failed to download file. Server responded with status code ${response.statusCode}`);
+    return;
+  }
 
-    // Handle WebSocket messages
-    ws.on('message', (message) => {
-      if (message === 'All Chunks Sent') {
-        console.log('All chunks received');
-        ws.close(); // Close WebSocket connection
+  response.on('data', async (chunk) => {
+    // Write each chunk of data to the file stream
+    fileStream.write(chunk);
+    console.log('recived')
+    await sendConfirmation();
+  });
+
+  response.on('end', () => {
+    // Close the file stream when all data has been received
+    fileStream.end();
+    console.log('File downloaded successfully');
+  });
+}).on('error', (err) => {
+  console.error('Error downloading file:', err);
+});
+
+
+async function sendConfirmation() {
+  return new Promise((resolve, reject) => {
+    // Create an HTTP POST request
+    const confirmationRequest = http.request(serverUrl, {
+      method: 'POST',
+    }, (response) => {
+      if (response.statusCode === 200) {
+        console.log('Confirmation message sent to server');
+        resolve(); // Resolve the promise when the confirmation message is sent successfully
       } else {
-        console.log(`Got Chunk: ${message}`);
-        // Send confirmation message to server
-        ws.send('Got Chunk');
+        console.error(`Error sending confirmation message to server. Server responded with status code ${response.statusCode}`);
+        reject(new Error(`Server responded with status code ${response.statusCode}`)); // Reject the promise if there's an error
       }
     });
 
-    // Get filename from Content-Disposition header
-    const contentDisposition = response.headers['content-disposition'];
-    const filenameMatch = contentDisposition.match(/filename=(.+)/);
-    const filename = filenameMatch ? filenameMatch[1] : 'downloaded_file';
+    // Send the confirmation message in the request body
+    confirmationRequest.write('Got Chunk');
 
-    // Create a writable stream to save the downloaded file
-    const filePath = path.join(__dirname, `${filename}`);
-
-    // Pipe the response stream to the file stream
-    const fileStream = fs.createWriteStream(filePath);
-    response.pipe(fileStream);
-
-    // Handle stream events
-    fileStream.on('finish', () => {
-      console.log('File downloaded successfully');
-    });
-    fileStream.on('error', (err) => {
-      console.error('Error downloading file:', err);
-    });
-  } else {
-    console.error(`Error downloading file. Server responded with status code ${response.statusCode}`);
-  }
-});
-
-request.on('error', (err) => {
-  console.error('Error downloading file:', err);
-});
+    // End the request
+    confirmationRequest.end();
+  });
+}
