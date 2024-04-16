@@ -36,7 +36,7 @@ app.get('/requestFile', async (req, res) => {
   });
   
   // Buffer size for each chunk (you can adjust this value as needed)
-  const bufferSize = 1024 * 60; // 1 KB
+  const bufferSize = 1024 * 60; 
   // Buffer to store chunk data
   const buffer = Buffer.alloc(bufferSize);
 
@@ -46,12 +46,27 @@ app.get('/requestFile', async (req, res) => {
       await setTimeout(100);
       console.log('waiting for pay')
     }
-
-    // Read data from the file into the buffer
-    const bytesRead = fs.readSync(fileHandle, buffer, 0, bufferSize, null);
+    
+    let bytesRead;
+    let bytesProcessed = 0; // Track the total bytes processed
+    let endOfFile = false; // Flag to indicate end of file
+    let remainingBytes = bufferSize;
+    while (remainingBytes > 0) {
+      bytesRead = fs.readSync(fileHandle, buffer, bytesProcessed, remainingBytes, null);
+      if (bytesRead === 0) {
+        endOfFile = true; // Set endOfFile flag to true
+        break; // Exit inner loop if end of file
+      }
+      remainingBytes -= bytesRead;
+      bytesProcessed += bytesRead;
+    }
+    
+    console.log('sent chunk')
+    res.write(buffer.slice(0, bytesProcessed)); // Write the chunk data to the response stream
+    payed = false;
 
     // If bytesRead is 0, it means we've reached the end of the file
-    if (bytesRead === 0) {
+    if (endOfFile) {
       // Close the file handle
       fs.closeSync(fileHandle);
       console.log(payments)
@@ -60,9 +75,6 @@ app.get('/requestFile', async (req, res) => {
       break
     }
 
-    console.log('sent chunk')
-    res.write(buffer.slice(0, bytesRead)); // Write the chunk data to the response stream
-    payed = false;
   };
 });
 
