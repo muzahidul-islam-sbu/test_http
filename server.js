@@ -11,15 +11,27 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 let payments = 0;
-let payed = true;
+let consumerPayment = {};
+
 // Endpoint to handle file download
 app.get('/requestFile', async (req, res) => {
   // Parse file hash from the query parameter
   const fileHash = req.query.fileHash;
-  if (!fileHash) {
+  const consumerID = req.query.peerID;
+
+  if (!fileHash || !consumerID) {
     // If file hash is not provided
+    console.log('missing field', fileHash, consumerID)
     return res.status(400).send('File hash is required');
   }
+
+  if (!consumerPayment.hasOwnProperty(consumerID)) { 
+    consumerPayment[consumerID] = {}
+  }
+  if (!consumerPayment[consumerID].hasOwnProperty(fileHash)) { 
+    consumerPayment[consumerID][fileHash] = true;
+  }
+
   // Assuming your files are stored in a directory called 'files'
   const filePath = path.join(__dirname, 'files', fileHash);
   // Open the file for reading synchronously
@@ -42,7 +54,7 @@ app.get('/requestFile', async (req, res) => {
 
   // Function to read chunks from the file and write them to the response stream
   while (true) {
-    while (!payed) {
+    while (!consumerPayment[consumerID][fileHash]) {
       await setTimeout(100);
       console.log('waiting for pay')
     }
@@ -63,13 +75,12 @@ app.get('/requestFile', async (req, res) => {
     
     console.log('sent chunk')
     res.write(buffer.slice(0, bytesProcessed)); // Write the chunk data to the response stream
-    payed = false;
+    consumerPayment[consumerID][fileHash] = false;
 
     // If bytesRead is 0, it means we've reached the end of the file
     if (endOfFile) {
       // Close the file handle
       fs.closeSync(fileHandle);
-      console.log(payments)
       // End the response
       res.end();
       break
@@ -78,10 +89,13 @@ app.get('/requestFile', async (req, res) => {
   };
 });
 
-app.get('/pay', (req, res) => {
-  console.log('payed')
+app.get('/sendTransaction', (req, res) => {
+  const fileHash = req.query.fileHash;
+  const consumerID = req.query.peerID;
+
   payments += 1;
-  payed = true
+  consumerPayment[consumerID][fileHash] = true
+  console.log('payed', payments)
   res.setHeader('Connection', 'close');
   res.end();
 });
